@@ -1,0 +1,881 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#0b1020">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Melancia dos Elásticos</title>
+<style>
+  html,body{margin:0;height:100%;background:#0b1020;overflow:hidden;touch-action:manipulation;
+    -webkit-user-select:none;user-select:none;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#fff}
+  canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+  .overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(6,9,20,.92);z-index:5;overflow:auto;padding:16px;box-sizing:border-box}
+  .overlay[hidden]{display:none}
+  .card{width:100%;max-width:420px;background:#151b33;border:1px solid #2a3360;border-radius:18px;padding:18px;box-sizing:border-box}
+  .card h1{margin:0 0 4px;font-size:22px}
+  .card p.sub{margin:0 0 14px;color:#9aa3c7;font-size:13px}
+  label{display:block;font-size:13px;color:#c9cfee;margin:10px 0 4px}
+  input,select{width:100%;box-sizing:border-box;padding:11px 12px;border-radius:10px;border:1px solid #2f3a6b;background:#0d1226;color:#fff;font-size:16px}
+  .row{display:flex;gap:10px}.row>div{flex:1}
+  .hint{font-size:12px;color:#8d96bd;margin-top:4px;line-height:1.35}
+  button{font:inherit;cursor:pointer}
+  .big{width:100%;margin-top:16px;padding:14px;border:0;border-radius:12px;background:linear-gradient(#ff5470,#e0244a);color:#fff;font-size:18px;font-weight:800}
+  .ghost{width:100%;margin-top:8px;padding:11px;border:1px solid #2f3a6b;border-radius:12px;background:transparent;color:#c9cfee;font-size:15px}
+  #panel .card{max-width:460px}
+  .grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:10px}
+  .grid button{padding:10px 6px;border-radius:10px;border:1px solid #2f3a6b;background:#0d1226;color:#fff;font-size:13px}
+  #log{margin-top:10px;max-height:160px;overflow:auto;background:#0a0e1d;border-radius:10px;padding:8px;font:11px/1.35 ui-monospace,monospace;color:#9fb0ff;white-space:pre-wrap;word-break:break-all}
+  #status{font-size:13px;margin-top:6px;color:#c9cfee}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<!-- Tela de configuração (só o streamer vê, antes de começar) -->
+<div id="setup" class="overlay">
+  <div class="card">
+    <h1>🍉 Melancia dos Elásticos</h1>
+    <p class="sub">Curtidas e presentes colocam elásticos até a melancia estourar.</p>
+
+    <label for="f-user">Seu @ do TikTok</label>
+    <input id="f-user" placeholder="ex.: gameinterative" autocomplete="off" autocapitalize="off" spellcheck="false">
+
+    <label for="f-src">De onde vêm as curtidas e presentes</label>
+    <select id="f-src">
+      <option value="tiktools">tik.tools (direto no celular)</option>
+      <option value="tikfinity">TikFinity (PC)</option>
+      <option value="custom">Endereço WebSocket próprio</option>
+      <option value="test">Só teste (sem LIVE)</option>
+    </select>
+
+    <div id="box-key">
+      <label for="f-key">Chave da API do tik.tools</label>
+      <input id="f-key" type="password" placeholder="cole sua chave aqui" autocomplete="off" spellcheck="false">
+      <div class="hint">Fica salva só neste celular.</div>
+    </div>
+    <div id="box-url" hidden>
+      <label for="f-url">Endereço</label>
+      <input id="f-url" placeholder="ws://localhost:21213/" autocomplete="off" spellcheck="false">
+      <div class="hint">O TikFinity só funciona com o jogo aberto no PC (arquivo local). Página https não aceita endereço ws://.</div>
+    </div>
+
+    <div class="row">
+      <div><label for="f-goal">Elásticos da 1ª melancia</label><input id="f-goal" type="number" min="20" max="5000" inputmode="numeric"></div>
+      <div><label for="f-coin">Elásticos por moeda</label><input id="f-coin" type="number" min="1" max="100" inputmode="numeric"></div>
+    </div>
+
+    <button class="big" id="b-start">▶ Começar</button>
+    <div class="hint" style="margin-top:12px">Antes da LIVE: celular em <b>Não perturbe</b>, na tomada e com o brilho travado.
+      Durante o jogo, toque <b>3 vezes rápido no canto superior esquerdo</b> para abrir o painel.</div>
+  </div>
+</div>
+
+<!-- Painel do streamer (escondido) -->
+<div id="panel" class="overlay" hidden>
+  <div class="card">
+    <h1 style="font-size:18px">Painel</h1>
+    <div id="status">—</div>
+    <div class="grid">
+      <button data-t="like1">❤️ +1</button>
+      <button data-t="like20">❤️ +20</button>
+      <button data-t="chat">💬 comentário</button>
+      <button data-t="rose">🌹 Rosa</button>
+      <button data-t="gift99">🎁 99 moedas</button>
+      <button data-t="gift500">🦁 500 moedas</button>
+      <button data-t="follow">➕ seguir</button>
+      <button data-t="sim" id="b-sim">🤖 simulador</button>
+      <button data-t="pop">💥 estourar</button>
+      <button data-t="mute" id="b-mute">🔊 som</button>
+      <button data-t="reconnect">🔄 reconectar</button>
+      <button data-t="copy">📋 copiar log</button>
+    </div>
+    <div id="log"></div>
+    <button class="ghost" data-t="setup">⚙️ Configuração</button>
+    <button class="big" data-t="close" style="background:#2b6cff">Voltar ao jogo</button>
+  </div>
+</div>
+
+<script>
+'use strict';
+/*CORE-START*/
+// ================= NÚCLEO (sem tela) — testado em tests/core-test.js =================
+const DEFAULTS = {
+  goalStart: 300,        // elásticos da 1ª melancia
+  goalGrowth: 1.15,      // cada melancia nova pede +15%
+  goalMax: 3000,
+  perLike: 1,            // 1 curtida = 1 elástico
+  perComment: 1,         // comentário = 1 elástico (no máx. 1 a cada 2 s por pessoa)
+  commentCooldownMs: 2000,
+  perCoin: 10,           // 1 moeda = 10 elásticos
+  perFollow: 20,
+  perShare: 20,
+  popMs: 7000,           // tempo da comemoração antes da próxima melancia
+  carryMax: 0.5          // curtidas durante a comemoração passam para a próxima (até 50% da meta)
+};
+
+function pick(o, paths) {
+  for (const p of paths) {
+    let v = o;
+    for (const k of p.split('.')) { if (v == null) break; v = v[k]; }
+    if (v !== undefined && v !== null && v !== '') return v;
+  }
+  return undefined;
+}
+
+// Converte mensagens (TikFinity / tik.tools / formato TikTok-Live-Connector) em ações simples.
+function createParser(emit, now) {
+  now = now || (() => Date.now());
+  const seen = new Set(), seenQ = [];
+  const combos = new Map();
+  function dup(id) {
+    if (id === undefined) return false;
+    id = String(id);
+    if (seen.has(id)) return true;
+    seen.add(id); seenQ.push(id);
+    if (seenQ.length > 1000) seen.delete(seenQ.shift());
+    return false;
+  }
+  function handle(msg) {
+    if (typeof msg === 'string') { try { msg = JSON.parse(msg); } catch (e) { return; } }
+    if (!msg || typeof msg !== 'object') return;
+    if (Array.isArray(msg)) { msg.forEach(handle); return; }
+    if (Array.isArray(msg.events)) { msg.events.forEach(handle); return; }
+    const ev = String(msg.event || msg.type || msg.eventType || '').toLowerCase();
+    const d = (msg.data && typeof msg.data === 'object') ? msg.data : msg;
+    const uid = pick(d, ['user.uniqueId', 'uniqueId', 'user.unique_id', 'unique_id', 'user.userId', 'userId']);
+    const name = String(pick(d, ['user.nickname', 'nickname', 'user.nickName', 'user.displayName']) || uid || 'alguém');
+    const id = pick(d, ['msgId', 'msg_id', 'common.msgId', 'eventId']);
+    const base = { uid: uid != null ? String(uid) : name, name };
+
+    if (ev === 'like') {
+      if (dup(id)) return;
+      let n = Number(pick(d, ['likeCount', 'like_count', 'count', 'likes'])) || 1;
+      n = Math.max(1, Math.min(500, Math.floor(n)));
+      emit(Object.assign({ type: 'like', amount: n }, base));
+    } else if (ev === 'chat' || ev === 'comment') {
+      if (dup(id)) return;
+      emit(Object.assign({ type: 'chat', amount: 1, text: String(pick(d, ['comment', 'text', 'content']) || '') }, base));
+    } else if (ev === 'gift') {
+      if (dup(id)) return;
+      const coins = Math.max(1, Number(pick(d, ['diamondCount', 'diamond_count', 'gift.diamondCount', 'gift.diamond_count', 'extendedGiftInfo.diamond_count', 'coins'])) || 1);
+      const rep = Math.max(1, Math.floor(Number(pick(d, ['repeatCount', 'repeat_count', 'gift.repeatCount', 'gift.repeat_count'])) || 1));
+      const end = !!pick(d, ['repeatEnd', 'repeat_end', 'gift.repeatEnd', 'gift.repeat_end']);
+      const gType = pick(d, ['giftType', 'gift_type', 'gift.giftType', 'gift.gift_type', 'extendedGiftInfo.type']);
+      const giftName = String(pick(d, ['giftName', 'gift_name', 'gift.name', 'gift.giftName', 'extendedGiftInfo.name', 'giftId']) || 'Presente');
+      let inc;
+      if (gType !== undefined && Number(gType) !== 1) {
+        inc = rep; // presente que não faz combo
+      } else {
+        // combo: a contagem chega acumulada (1, 2, 3… e uma mensagem final que repete o total)
+        const key = base.uid + '|' + giftName, t = now();
+        let c = combos.get(key);
+        if (c && t - c.t > 10000) { combos.delete(key); c = null; }
+        if (!c) inc = rep;
+        else if (rep > c.n) inc = rep - c.n;
+        else if (rep === c.n) inc = (!end && rep === 1) ? 1 : 0;
+        else inc = rep; // contagem recomeçou: combo novo
+        if (end) combos.delete(key); else combos.set(key, { n: rep, t });
+      }
+      if (inc > 0) emit(Object.assign({ type: 'gift', giftName, coins, count: inc, amount: coins * inc }, base));
+    } else if (ev === 'follow') {
+      if (dup(id)) return;
+      emit(Object.assign({ type: 'follow', amount: 1 }, base));
+    } else if (ev === 'share') {
+      if (dup(id)) return;
+      emit(Object.assign({ type: 'share', amount: 1 }, base));
+    } else if (ev === 'social') {
+      if (dup(id)) return;
+      const dt = String(pick(d, ['displayType', 'label', 'action']) || '').toLowerCase();
+      if (dt.includes('follow')) emit(Object.assign({ type: 'follow', amount: 1 }, base));
+      else if (dt.includes('share')) emit(Object.assign({ type: 'share', amount: 1 }, base));
+    }
+  }
+  return { handle };
+}
+
+function createGame(opts, hooks) {
+  const cfg = Object.assign({}, DEFAULTS, opts || {});
+  hooks = hooks || {};
+  const s = {
+    goal: cfg.goalStart, bands: 0, melonNo: 1, phase: 'play', popLeft: 0, pending: 0,
+    contrib: new Map(), popper: null, top: [], commentAt: new Map()
+  };
+  function addBands(uid, name, n, kind, meta) {
+    n = Math.max(0, Math.floor(n));
+    if (!n) return 0;
+    if (s.phase !== 'play') {
+      s.pending = Math.min(s.pending + n, 1e6); // o limite (50% da próxima meta) é aplicado em next()
+      return 0;
+    }
+    const used = Math.min(n, s.goal - s.bands);
+    s.bands += used;
+    const key = uid || name || '?';
+    const c = s.contrib.get(key) || { uid: key, name: name || key, n: 0 };
+    c.n += used; if (name) c.name = name;
+    s.contrib.set(key, c);
+    if (hooks.onAdd) hooks.onAdd({ uid: key, name: c.name, n: used, kind, meta, bands: s.bands, goal: s.goal });
+    if (s.bands >= s.goal) pop(c);
+    return used;
+  }
+  function pop(c) {
+    s.phase = 'pop'; s.popLeft = cfg.popMs; s.popper = c;
+    s.top = [...s.contrib.values()].sort((a, b) => b.n - a.n).slice(0, 3);
+    if (hooks.onPop) hooks.onPop({ popper: c, top: s.top, melonNo: s.melonNo, goal: s.goal });
+  }
+  function next() {
+    s.melonNo++;
+    s.goal = Math.min(cfg.goalMax, Math.max(10, Math.round(s.goal * cfg.goalGrowth / 10) * 10));
+    s.contrib = new Map(); s.popper = null; s.top = [];
+    s.bands = Math.min(s.pending, Math.floor(s.goal * cfg.carryMax)); s.pending = 0;
+    s.phase = 'play';
+    if (hooks.onNew) hooks.onNew({ melonNo: s.melonNo, goal: s.goal, bands: s.bands });
+  }
+  function action(a, t) {
+    t = t === undefined ? Date.now() : t;
+    switch (a.type) {
+      case 'like': return addBands(a.uid, a.name, a.amount * cfg.perLike, 'like', a);
+      case 'chat': {
+        const k = a.uid || a.name;
+        const last = s.commentAt.has(k) ? s.commentAt.get(k) : -Infinity;
+        if (t - last < cfg.commentCooldownMs) return 0;
+        s.commentAt.set(k, t);
+        if (s.commentAt.size > 3000) s.commentAt.clear();
+        return addBands(a.uid, a.name, cfg.perComment, 'chat', a);
+      }
+      case 'gift': return addBands(a.uid, a.name, a.amount * cfg.perCoin, 'gift', a);
+      case 'follow': return addBands(a.uid, a.name, cfg.perFollow, 'follow', a);
+      case 'share': return addBands(a.uid, a.name, cfg.perShare, 'share', a);
+    }
+    return 0;
+  }
+  function tick(ms) {
+    if (s.phase === 'pop') { s.popLeft -= ms; if (s.popLeft <= 0) next(); }
+  }
+  function forcePop() {
+    if (s.phase === 'play') addBands('teste', 'Teste', s.goal - s.bands, 'test');
+  }
+  return { state: s, cfg, action, tick, forcePop };
+}
+/*CORE-END*/
+
+// ================= ARMAZENAMENTO (protegido) =================
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('melancia:' + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem('melancia:' + k, JSON.stringify(v)); } catch (e) {} }
+};
+const today = () => new Date().toLocaleDateString('sv-SE');
+
+// ================= SOM (sintetizado, sem arquivos) =================
+const Sound = (() => {
+  let ac = null, master = null, muted = store.get('muted', false), lastBoing = 0, noiseBuf = null;
+  function init() {
+    if (ac) { if (ac.state === 'suspended') ac.resume().catch(() => {}); return; }
+    try {
+      ac = new (window.AudioContext || window.webkitAudioContext)();
+      master = ac.createGain(); master.gain.value = muted ? 0 : 0.7; master.connect(ac.destination);
+      noiseBuf = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
+      const ch = noiseBuf.getChannelData(0); for (let i = 0; i < ch.length; i++) ch[i] = Math.random() * 2 - 1;
+    } catch (e) { ac = null; }
+  }
+  function ok() { return ac && !muted && ac.state === 'running'; }
+  function env(g, t, a, peak, dur) { g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(peak, t + a); g.gain.exponentialRampToValueAtTime(0.0001, t + dur); }
+  function boing(p) {
+    if (!ok()) return; const now = performance.now(); if (now - lastBoing < 70) return; lastBoing = now;
+    const t = ac.currentTime, o = ac.createOscillator(), g = ac.createGain();
+    o.type = 'triangle'; const f = 170 + p * 380 + Math.random() * 30;
+    o.frequency.setValueAtTime(f * 1.6, t); o.frequency.exponentialRampToValueAtTime(f, t + 0.09);
+    env(g, t, 0.005, 0.07, 0.12); o.connect(g).connect(master); o.start(t); o.stop(t + 0.14);
+  }
+  function noise(t, dur, type, freq, peak, q) {
+    const src = ac.createBufferSource(); src.buffer = noiseBuf;
+    const f = ac.createBiquadFilter(); f.type = type; f.frequency.value = freq; if (q) f.Q.value = q;
+    const g = ac.createGain(); env(g, t, 0.004, peak, dur);
+    src.connect(f).connect(g).connect(master); src.start(t, Math.random() * 0.5); src.stop(t + dur + 0.05);
+    return f;
+  }
+  function crack() { if (!ok()) return; const t = ac.currentTime; noise(t, 0.12, 'highpass', 2500, 0.35); noise(t + 0.05, 0.08, 'highpass', 1800, 0.2); }
+  function creak() {
+    if (!ok()) return; const t = ac.currentTime, o = ac.createOscillator(), g = ac.createGain(), f = ac.createBiquadFilter();
+    o.type = 'sawtooth'; o.frequency.setValueAtTime(70 + Math.random() * 30, t); o.frequency.linearRampToValueAtTime(55, t + 0.35);
+    f.type = 'lowpass'; f.frequency.value = 600; env(g, t, 0.03, 0.05, 0.4); o.connect(f).connect(g).connect(master); o.start(t); o.stop(t + 0.45);
+  }
+  function boom() {
+    if (!ok()) return; const t = ac.currentTime;
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type = 'sine'; o.frequency.setValueAtTime(110, t); o.frequency.exponentialRampToValueAtTime(35, t + 0.45);
+    env(g, t, 0.005, 0.9, 0.55); o.connect(g).connect(master); o.start(t); o.stop(t + 0.6);
+    const f = noise(t, 0.7, 'lowpass', 5000, 0.6); f.frequency.exponentialRampToValueAtTime(300, t + 0.7);
+    noise(t + 0.08, 0.6, 'bandpass', 1200, 0.25, 0.8); // respingo
+  }
+  function ding() {
+    if (!ok()) return; const t = ac.currentTime;
+    [660, 880, 1320].forEach((fr, i) => { const o = ac.createOscillator(), g = ac.createGain(); o.type = 'sine'; o.frequency.value = fr; env(g, t + i * 0.07, 0.01, 0.12, 0.35); o.connect(g).connect(master); o.start(t + i * 0.07); o.stop(t + i * 0.07 + 0.4); });
+  }
+  function setMuted(m) { muted = m; store.set('muted', m); if (master) master.gain.value = m ? 0 : 0.7; }
+  return { init, boing, crack, creak, boom, ding, setMuted, get muted() { return muted; } };
+})();
+
+// ================= CONEXÃO (WebSocket com reconexão) =================
+function createConnection(onMsg, onStatus) {
+  let ws = null, url = '', tries = 0, timer = null, alive = false, lastEvent = 0;
+  function open(u) {
+    close(); url = u; alive = true; tries = 0; connect();
+  }
+  function connect() {
+    if (!alive || !url) return;
+    onStatus('conectando');
+    try { ws = new WebSocket(url); } catch (e) { onStatus('erro', String(e.message || e)); return retry(); }
+    ws.binaryType = 'arraybuffer';
+    ws.onopen = () => { tries = 0; onStatus('conectado'); };
+    ws.onmessage = (m) => { lastEvent = Date.now(); onMsg(m.data); };
+    ws.onerror = () => {};
+    ws.onclose = (e) => {
+      ws = null;
+      const reason = (e && e.reason) || '';
+      if (e && e.code === 4404) {
+        // LIVE não encontrada: respeita o tempo pedido pelo servidor em vez de insistir
+        const m = /retry after (\d+)/i.exec(reason);
+        const secs = m ? Math.min(900, Number(m[1])) : 60;
+        nextAt = Date.now() + secs * 1000 + 1500;
+        onStatus('LIVE não encontrada', 'abra a LIVE antes; nova tentativa automática em');
+        clearTimeout(timer); timer = setTimeout(connect, secs * 1000 + 1500);
+        return;
+      }
+      onStatus('caiu', e && e.code ? 'código ' + e.code + (reason ? ' · ' + reason : '') : '');
+      retry();
+    };
+  }
+  let nextAt = 0;
+  function retry() {
+    if (!alive) return;
+    const wait = Math.min(15000, 1000 * Math.pow(2, tries++));
+    nextAt = Date.now() + wait;
+    clearTimeout(timer); timer = setTimeout(connect, wait);
+  }
+  function close() { alive = false; clearTimeout(timer); if (ws) { try { ws.onclose = null; ws.close(); } catch (e) {} ws = null; } onStatus('desligado'); }
+  return { open, close, reconnect() { if (url) open(url); }, get lastEvent() { return lastEvent; }, get waitLeft() { return Math.max(0, Math.ceil((nextAt - Date.now()) / 1000)); } };
+}
+
+// ================= TELA =================
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d', { alpha: false });
+let W = 0, H = 0, DPR = 1, U = 1;
+
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  U = Math.min(W, H * 0.5625) / 400; // unidade de tamanho (tela de referência: 400 de largura)
+  melonCache.dirty = true;
+}
+window.addEventListener('resize', resize);
+
+const rnd = (a, b) => a + Math.random() * (b - a);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const BAND_COLORS = ['#ffd23f', '#ff4d6d', '#3fa7ff', '#7cff6b', '#ff8fd8', '#ff9f1c', '#b38bff', '#ffffff'];
+const MAX_VISIBLE_BANDS = 90;
+
+// ----- geometria da melancia -----
+const melon = {
+  bandsDesc: [], cracks: [], crackLevel: 0, spring: 0, dropT: 1, visible: true, p: 0
+};
+function newMelonVisual() {
+  melon.bandsDesc = [];
+  for (let i = 0; i < MAX_VISIBLE_BANDS; i++) {
+    const spread = 0.05 + 0.17 * (i / MAX_VISIBLE_BANDS);
+    melon.bandsDesc.push({
+      x: (Math.random() + Math.random() - 1) * spread, // posição relativa ao meio (fração do raio)
+      c: BAND_COLORS[(Math.random() * BAND_COLORS.length) | 0],
+      w: rnd(0.022, 0.034), tilt: rnd(-0.06, 0.06)
+    });
+  }
+  melon.cracks = [];
+  for (let i = 0; i < 7; i++) {
+    const top = i % 2 === 0, pts = [], side = Math.random() < 0.5 ? -1 : 1;
+    let x = rnd(0.06, 0.2) * side, y = top ? -1 : 1;
+    pts.push([x, y]);
+    for (let k = 0; k < 6; k++) { x += rnd(0.02, 0.09) * side; y += (top ? 1 : -1) * rnd(0.08, 0.16); pts.push([x, y]); }
+    melon.cracks.push({ pts, start: 0.5 + i * 0.06 });
+  }
+  melon.crackLevel = 0; melon.dropT = 0; melon.visible = true; melonCache.dirty = true;
+}
+function pinchAt(xr, pinch) { return 1 - pinch * Math.exp(-(xr * xr) / 0.04); }
+function halfH(xr, b, pinch) { return b * Math.sqrt(Math.max(0, 1 - xr * xr)) * pinchAt(xr, pinch); }
+
+const melonCache = { cv: document.createElement('canvas'), dirty: true, key: '', lastBuild: 0 };
+function melonDims() {
+  const a = Math.min(W * 0.4, H * 0.21), b = a * 0.64;
+  return { a, b, cx: W / 2, cy: H * 0.43 };
+}
+function visibleBands(bands, goal) {
+  if (bands <= 0) return 0;
+  if (bands <= 10) return bands;
+  return Math.min(MAX_VISIBLE_BANDS, 10 + Math.round((bands - 10) / Math.max(1, goal - 10) * (MAX_VISIBLE_BANDS - 10)));
+}
+function buildMelonCache(p, nb) {
+  const { a, b } = melonDims();
+  const pad = a * 0.15, cw = (a + pad) * 2, ch = (b + pad) * 2;
+  const c = melonCache.cv;
+  c.width = Math.ceil(cw * DPR); c.height = Math.ceil(ch * DPR);
+  const g = c.getContext('2d');
+  g.setTransform(DPR, 0, 0, DPR, cw / 2 * DPR, ch / 2 * DPR);
+  const pinch = 0.4 * Math.pow(p, 1.5);
+  // contorno
+  const N = 80;
+  const path = new Path2D();
+  for (let i = 0; i <= N; i++) { const t = Math.PI - (i / N) * Math.PI, xr = Math.cos(t); const x = a * xr, y = -halfH(xr, b, pinch); i ? path.lineTo(x, y) : path.moveTo(x, y); }
+  for (let i = 0; i <= N; i++) { const t = (i / N) * Math.PI, xr = Math.cos(t); path.lineTo(a * xr, halfH(xr, b, pinch)); }
+  path.closePath();
+  // sombra no chão
+  g.fillStyle = 'rgba(0,0,0,.35)';
+  g.beginPath(); g.ellipse(0, b * 1.02, a * 0.85, b * 0.12, 0, 0, Math.PI * 2); g.fill();
+  // casca
+  const grad = g.createRadialGradient(-a * 0.3, -b * 0.4, b * 0.1, 0, 0, a * 1.05);
+  grad.addColorStop(0, '#5fbf4a'); grad.addColorStop(0.6, '#2f8a2c'); grad.addColorStop(1, '#1a5a1c');
+  g.fillStyle = grad; g.fill(path);
+  g.save(); g.clip(path);
+  // listras
+  g.strokeStyle = '#174d19'; g.lineCap = 'round';
+  for (let k = -3; k <= 3; k++) {
+    const s = k / 3.6;
+    g.lineWidth = b * 0.11;
+    g.beginPath();
+    for (let i = 0; i <= 40; i++) {
+      const xr = -1 + 2 * i / 40, x = a * xr;
+      const y = s * halfH(xr, b, pinch) + Math.sin(xr * 18 + k * 2) * b * 0.025;
+      i ? g.lineTo(x, y) : g.moveTo(x, y);
+    }
+    g.stroke();
+  }
+  // mancha amarela de baixo
+  g.fillStyle = 'rgba(230,214,110,.35)';
+  g.beginPath(); g.ellipse(a * 0.35, b * 0.75, a * 0.22, b * 0.12, 0, 0, Math.PI * 2); g.fill();
+  // brilho
+  g.fillStyle = 'rgba(255,255,255,.16)';
+  g.beginPath(); g.ellipse(-a * 0.42, -b * 0.5, a * 0.28, b * 0.12, -0.25, 0, Math.PI * 2); g.fill();
+  // rachaduras
+  for (const cr of melon.cracks) {
+    if (p < cr.start) continue;
+    const k = clamp((p - cr.start) / 0.3, 0, 1), n = Math.max(2, Math.round(cr.pts.length * k));
+    const draw = (col, w) => {
+      g.strokeStyle = col; g.lineWidth = w; g.beginPath();
+      for (let i = 0; i < n; i++) { const [xr, yr] = cr.pts[i]; const x = a * xr, y = yr * halfH(xr, b, pinch) * 0.98; i ? g.lineTo(x, y) : g.moveTo(x, y); }
+      g.stroke();
+    };
+    if (p > 0.82) draw('#ff3355', b * 0.06);
+    draw('#0b1a0b', b * 0.025);
+  }
+  g.restore();
+  g.lineWidth = Math.max(1, a * 0.012); g.strokeStyle = 'rgba(0,0,0,.35)'; g.stroke(path);
+  // talo
+  g.fillStyle = '#6b4a1e'; g.beginPath(); g.ellipse(a * 0.99, -b * 0.05, a * 0.035, b * 0.06, 0.3, 0, Math.PI * 2); g.fill();
+  // elásticos (lado da frente)
+  for (let i = 0; i < nb; i++) {
+    const d = melon.bandsDesc[i], xr = d.x, x = a * xr, hh = halfH(xr, b, pinch) * 1.01;
+    const bulge = a * (0.05 + Math.abs(xr) * 0.25);
+    g.save(); g.translate(x, 0); g.rotate(d.tilt);
+    g.lineWidth = a * d.w; g.strokeStyle = 'rgba(0,0,0,.35)';
+    g.beginPath(); g.ellipse(a * 0.006, 0, bulge, hh, 0, -Math.PI / 2, Math.PI / 2); g.stroke();
+    g.lineWidth = a * d.w * 0.8; g.strokeStyle = d.c;
+    g.beginPath(); g.ellipse(0, 0, bulge, hh, 0, -Math.PI / 2, Math.PI / 2); g.stroke();
+    g.lineWidth = a * d.w * 0.25; g.strokeStyle = 'rgba(255,255,255,.45)';
+    g.beginPath(); g.ellipse(-a * 0.003, 0, bulge, hh * 0.97, 0, -Math.PI / 2.4, Math.PI / 6); g.stroke();
+    g.restore();
+  }
+  melonCache.w = cw; melonCache.h = ch;
+}
+
+// ----- partículas (com limite para não pesar) -----
+const parts = [];
+const MAX_PARTS = 240;
+function addPart(o) { if (parts.length >= MAX_PARTS) parts.shift(); parts.push(o); }
+const heartSprite = (() => {
+  const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
+  g.fillStyle = '#ff3b6b'; g.beginPath(); g.moveTo(32, 56);
+  g.bezierCurveTo(-8, 30, 10, 2, 32, 18); g.bezierCurveTo(54, 2, 72, 30, 32, 56); g.fill();
+  g.fillStyle = 'rgba(255,255,255,.5)'; g.beginPath(); g.ellipse(22, 22, 7, 4, -0.6, 0, Math.PI * 2); g.fill();
+  return c;
+})();
+function spawnHeart() {
+  const { a, cx, cy } = melonDims();
+  addPart({ k: 'heart', x: cx + rnd(-a * 0.9, a * 0.9), y: cy + rnd(0, a * 0.4), vx: rnd(-20, 20), vy: rnd(-120, -80), life: 1.4, max: 1.4, s: rnd(12, 20) * U });
+}
+function explode() {
+  const { a, b, cx, cy } = melonDims();
+  for (let i = 0; i < 26; i++) {
+    const ang = rnd(0, Math.PI * 2), sp = rnd(250, 700) * U;
+    addPart({ k: 'chunk', x: cx + rnd(-a * 0.5, a * 0.5), y: cy + rnd(-b * 0.4, b * 0.4), vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp - 250 * U, r: rnd(0, 6), vr: rnd(-8, 8), s: rnd(14, 30) * U, life: 2.6, max: 2.6 });
+  }
+  for (let i = 0; i < 45; i++) {
+    const ang = rnd(0, Math.PI * 2), sp = rnd(150, 600) * U;
+    addPart({ k: 'seed', x: cx, y: cy, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp - 200 * U, r: rnd(0, 6), vr: rnd(-10, 10), s: rnd(3, 5) * U, life: 2.4, max: 2.4 });
+  }
+  for (let i = 0; i < 70; i++) {
+    const ang = rnd(0, Math.PI * 2), sp = rnd(100, 800) * U;
+    addPart({ k: 'drop', x: cx, y: cy, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp - 150 * U, s: rnd(2, 6) * U, life: rnd(0.8, 1.8), max: 1.8 });
+  }
+}
+function drip() {
+  const { b, cx, cy } = melonDims();
+  addPart({ k: 'drop', x: cx + rnd(-10, 10) * U, y: cy + b * 0.55, vx: rnd(-10, 10), vy: rnd(10, 40), s: rnd(2, 4) * U, life: 1.2, max: 1.2 });
+}
+
+// ----- avisos na tela -----
+const toasts = []; // {text, color, t, key}
+function toast(text, color, key) {
+  const now = performance.now();
+  if (key) { const old = toasts.find(t => t.key === key && now - t.t < 2500); if (old) { old.text = text; old.t = now; return; } }
+  toasts.unshift({ text, color: color || '#fff', t: now, key });
+  if (toasts.length > 4) toasts.length = 4;
+}
+const floaters = []; // "+N" perto da melancia
+function floater(text, color) {
+  const { a, cx, cy } = melonDims();
+  floaters.push({ text, color, x: cx + rnd(-a * 0.5, a * 0.5), y: cy - a * 0.2, t: 0 });
+  if (floaters.length > 8) floaters.shift();
+}
+
+// ================= ESTADO GERAL =================
+const params = new URLSearchParams(location.search);
+let settings = Object.assign({ user: '', src: 'tiktools', key: '', url: 'ws://localhost:21213/', goal: 300, perCoin: 10 }, store.get('settings', {}));
+['user', 'src', 'key', 'url'].forEach(k => { if (params.get(k)) settings[k] = params.get(k); });
+if (params.get('goal')) settings.goal = Number(params.get('goal')) || settings.goal;
+
+let game = null, parser = null, conn = null, started = false, sim = false, simTimer = 0, shake = 0, popAt = 0, lastPopInfo = null;
+let connStatus = 'desligado', connDetail = '';
+const likeAgg = new Map(); // agrupa curtidas da mesma pessoa no aviso
+const rawLog = [];
+let pops = store.get('pops-' + today(), {}); // {uid:{name,n}}
+
+function short(n, max) { n = String(n || ''); max = max || 16; return n.length > max ? n.slice(0, max - 1) + '…' : n; }
+function kingOfDay() { let best = null; for (const k in pops) if (!best || pops[k].n > best.n) best = pops[k]; return best; }
+
+function startGame() {
+  game = createGame({ goalStart: clamp(Number(settings.goal) || 300, 20, 5000), perCoin: clamp(Number(settings.perCoin) || 10, 1, 100) }, {
+    onAdd(e) {
+      const p = e.bands / e.goal;
+      melon.spring = Math.min(1, melon.spring + (e.kind === 'gift' ? 1 : 0.35));
+      melonCache.dirty = true;
+      Sound.boing(p);
+      if (e.kind === 'like') {
+        const tot = (likeAgg.get(e.uid) || 0) + e.n; likeAgg.set(e.uid, tot);
+        setTimeout(() => likeAgg.delete(e.uid), 2500);
+        toast('❤️ ' + short(e.name) + '  +' + tot, '#ff8fab', 'like:' + e.uid);
+        for (let i = 0; i < Math.min(3, e.n); i++) spawnHeart();
+      } else if (e.kind === 'gift') {
+        const m = e.meta || {};
+        toast('🎁 ' + short(e.name) + ' mandou ' + short(m.giftName, 14) + (m.count > 1 ? ' ×' + m.count : '') + '  +' + e.n, '#ffd23f');
+        floater('+' + e.n, '#ffd23f'); Sound.ding();
+      } else if (e.kind === 'follow') {
+        toast('➕ ' + short(e.name) + ' seguiu  +' + e.n, '#7cff6b'); floater('+' + e.n, '#7cff6b');
+      } else if (e.kind === 'share') {
+        toast('🔁 ' + short(e.name) + ' compartilhou  +' + e.n, '#3fa7ff'); floater('+' + e.n, '#3fa7ff');
+      } else if (e.kind === 'chat') {
+        toast('💬 ' + short(e.name) + '  +1', '#c9d4ff', 'chat:' + e.uid);
+      }
+    },
+    onPop(e) {
+      lastPopInfo = e; popAt = performance.now(); shake = 1; melon.visible = false;
+      explode(); Sound.boom();
+      const k = e.popper.uid;
+      pops[k] = { name: e.popper.name, n: ((pops[k] && pops[k].n) || 0) + 1 };
+      store.set('pops-' + today(), pops);
+    },
+    onNew() { newMelonVisual(); }
+  });
+  parser = createParser(a => game.action(a));
+  newMelonVisual();
+  started = true;
+}
+
+function feed(raw) {
+  if (typeof raw !== 'string') { log('(mensagem binária ignorada: ' + (raw && raw.byteLength) + ' bytes)'); return; }
+  log(raw.length > 300 ? raw.slice(0, 300) + '…' : raw);
+  try {
+    const m = JSON.parse(raw), ev = String(m.event || m.type || '').toLowerCase();
+    if (ev === 'error' || ev === 'streamend' || ev === 'disconnected') { connDetail = ev + (m.data && (m.data.message || m.data.error) ? ': ' + (m.data.message || m.data.error) : ''); updateStatus(); }
+  } catch (e) {}
+  parser.handle(raw);
+}
+function log(line) {
+  rawLog.unshift(new Date().toLocaleTimeString('pt-BR') + '  ' + line);
+  if (rawLog.length > 60) rawLog.length = 60;
+  if (!panel.hidden) logEl.textContent = rawLog.join('\n');
+}
+
+// ================= CONFIGURAÇÃO / PAINEL =================
+const $ = id => document.getElementById(id);
+const setup = $('setup'), panel = $('panel'), logEl = $('log');
+function fillSetup() {
+  $('f-user').value = settings.user; $('f-src').value = settings.src; $('f-key').value = settings.key;
+  $('f-url').value = settings.url; $('f-goal').value = settings.goal; $('f-coin').value = settings.perCoin;
+  syncSrc();
+}
+function syncSrc() {
+  const s = $('f-src').value;
+  $('box-key').hidden = s !== 'tiktools';
+  $('box-url').hidden = !(s === 'tikfinity' || s === 'custom');
+  if (s === 'tikfinity' && !$('f-url').value) $('f-url').value = 'ws://localhost:21213/';
+}
+$('f-src').addEventListener('change', syncSrc);
+function wsUrl() {
+  const user = settings.user.replace(/^@/, '').trim();
+  if (settings.src === 'tiktools') return 'wss://api.tik.tools?uniqueId=' + encodeURIComponent(user) + '&apiKey=' + encodeURIComponent(settings.key.trim());
+  if (settings.src === 'tikfinity' || settings.src === 'custom') return settings.url.trim();
+  return '';
+}
+$('b-start').addEventListener('click', () => {
+  settings = {
+    user: $('f-user').value.trim().replace(/^@/, ''), src: $('f-src').value, key: $('f-key').value.trim(),
+    url: $('f-url').value.trim() || 'ws://localhost:21213/', goal: Number($('f-goal').value) || 300, perCoin: Number($('f-coin').value) || 10
+  };
+  store.set('settings', settings);
+  Sound.init(); keepAwake();
+  try { if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {}); } catch (e) {}
+  setup.hidden = true;
+  if (!started) startGame();
+  else { game.cfg.perCoin = clamp(settings.perCoin, 1, 100); }
+  if (!conn) conn = createConnection(feed, (st, det) => { connStatus = st; connDetail = det || ''; updateStatus(); });
+  const u = wsUrl();
+  if (settings.src === 'test' || !u) { conn.close(); setSim(true); }
+  else {
+    if (settings.src === 'tiktools' && (!settings.user || !settings.key)) { alertBox('Preencha seu @ e a chave do tik.tools.'); setup.hidden = false; return; }
+    setSim(false); conn.open(u);
+  }
+});
+function alertBox(msg) { const h = setup.querySelector('.hint'); h.innerHTML = '⚠️ ' + msg; h.style.color = '#ffb4b4'; }
+
+function updateStatus() {
+  const el = $('status'); if (!el) return;
+  const since = conn && conn.lastEvent ? Math.round((Date.now() - conn.lastEvent) / 1000) + ' s' : '—';
+  let det = connDetail;
+  if (connStatus === 'LIVE não encontrada' && conn) det += ' ' + conn.waitLeft + ' s (ou toque em 🔄 reconectar)';
+  el.textContent = 'Fonte: ' + settings.src + ' · ' + connStatus + (det ? ' (' + det + ')' : '') + ' · último evento: ' + since + (sim ? ' · simulador LIGADO' : '');
+}
+function setSim(on) { sim = on; $('b-sim').textContent = on ? '🤖 simulador ✓' : '🤖 simulador'; updateStatus(); }
+function testAction(a) { game && game.action(Object.assign({ uid: 'teste', name: 'Teste' }, a)); }
+
+panel.addEventListener('click', (ev) => {
+  const t = ev.target.closest('[data-t]'); if (!t) return;
+  Sound.init();
+  switch (t.dataset.t) {
+    case 'like1': testAction({ type: 'like', amount: 1 }); break;
+    case 'like20': testAction({ type: 'like', amount: 20 }); break;
+    case 'chat': testAction({ type: 'chat', amount: 1, uid: 'c' + Math.random() }); break;
+    case 'rose': testAction({ type: 'gift', giftName: 'Rosa', coins: 1, count: 1, amount: 1 }); break;
+    case 'gift99': testAction({ type: 'gift', giftName: 'Presente', coins: 99, count: 1, amount: 99 }); break;
+    case 'gift500': testAction({ type: 'gift', giftName: 'Leão', coins: 500, count: 1, amount: 500 }); break;
+    case 'follow': testAction({ type: 'follow', amount: 1, uid: 'f' + Math.random() }); break;
+    case 'sim': setSim(!sim); break;
+    case 'pop': game && game.forcePop(); break;
+    case 'mute': Sound.setMuted(!Sound.muted); t.textContent = Sound.muted ? '🔇 som' : '🔊 som'; break;
+    case 'reconnect': conn && conn.reconnect(); break;
+    case 'copy': try { navigator.clipboard.writeText(rawLog.join('\n')).then(() => t.textContent = '✓ copiado', () => t.textContent = '✗ falhou'); } catch (e) {} break;
+    case 'setup': panel.hidden = true; fillSetup(); setup.hidden = false; break;
+    case 'close': panel.hidden = true; break;
+  }
+  updateStatus();
+});
+$('b-mute').textContent = Sound.muted ? '🔇 som' : '🔊 som';
+
+// 3 toques rápidos no canto superior esquerdo abrem o painel
+let taps = [];
+window.addEventListener('pointerdown', (e) => {
+  if (!started || !setup.hidden || !panel.hidden) return;
+  Sound.init();
+  if (e.clientX < W * 0.25 && e.clientY < H * 0.15) {
+    const now = performance.now(); taps = taps.filter(t => now - t < 700); taps.push(now);
+    if (taps.length >= 3) { taps = []; panel.hidden = false; logEl.textContent = rawLog.join('\n'); updateStatus(); }
+  }
+});
+window.addEventListener('keydown', (e) => { if (e.key === 'F2' || e.key === 'd') { panel.hidden = !panel.hidden; logEl.textContent = rawLog.join('\n'); updateStatus(); } });
+
+// tela sempre acesa
+let wakeLock = null;
+async function keepAwake() { try { if ('wakeLock' in navigator && !wakeLock) { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; }); } } catch (e) {} }
+document.addEventListener('visibilitychange', () => { if (!document.hidden && started) { keepAwake(); Sound.init(); } });
+
+// ================= SIMULADOR =================
+const SIM_NAMES = ['Ana', 'Bia', 'Caio', 'Duda', 'Enzo', 'Fê', 'Gabi', 'Heitor', 'Iza', 'João', 'Kauã', 'Lari', 'Malu', 'Nico', 'Otávio', 'Pietra'];
+function simStep(dt) {
+  simTimer -= dt; if (simTimer > 0) return;
+  simTimer = rnd(250, 1200);
+  const n = SIM_NAMES[(Math.random() * SIM_NAMES.length) | 0], r = Math.random();
+  const base = { uid: n.toLowerCase(), name: n };
+  if (r < 0.75) game.action(Object.assign({ type: 'like', amount: (Math.random() * 15 + 1) | 0 }, base));
+  else if (r < 0.9) game.action(Object.assign({ type: 'chat', amount: 1 }, base));
+  else if (r < 0.98) game.action(Object.assign({ type: 'gift', giftName: 'Rosa', coins: 1, count: 1 + (Math.random() * 3 | 0), amount: 1 }, base));
+  else game.action(Object.assign({ type: 'gift', giftName: 'Rosquinha', coins: 30, count: 1, amount: 30 }, base));
+}
+
+// ================= DESENHO =================
+function txt(s, x, y, size, color, align, weight) {
+  ctx.font = (weight || 800) + ' ' + Math.round(size) + 'px system-ui,-apple-system,"Segoe UI",Roboto,sans-serif';
+  ctx.textAlign = align || 'center'; ctx.textBaseline = 'middle';
+  ctx.lineWidth = Math.max(2, size * 0.18); ctx.strokeStyle = 'rgba(0,0,0,.75)'; ctx.lineJoin = 'round';
+  ctx.strokeText(s, x, y); ctx.fillStyle = color || '#fff'; ctx.fillText(s, x, y);
+}
+function roundRect(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
+
+let bgGrad = null, bgKey = '';
+function drawBg() {
+  const k = W + 'x' + H;
+  if (k !== bgKey) {
+    bgGrad = ctx.createLinearGradient(0, 0, 0, H);
+    bgGrad.addColorStop(0, '#1b1446'); bgGrad.addColorStop(0.55, '#0e1a3a'); bgGrad.addColorStop(1, '#07122a'); bgKey = k;
+  }
+  ctx.fillStyle = bgGrad; ctx.fillRect(0, 0, W, H);
+  // mesa
+  const { b, cy } = melonDims();
+  ctx.fillStyle = '#3a2516'; ctx.fillRect(0, cy + b * 1.0, W, H * 0.06);
+  ctx.fillStyle = '#4e3220'; ctx.fillRect(0, cy + b * 1.0, W, H * 0.012);
+}
+
+function drawHud(now) {
+  const s = game.state, p = s.bands / s.goal;
+  txt('🍉 MELANCIA DOS ELÁSTICOS', W / 2, H * 0.105, 22 * U, '#fff');
+  // barra
+  const bw = Math.min(W * 0.84, 380 * U), bh = 26 * U, bx = (W - bw) / 2, by = H * 0.145;
+  roundRect(bx, by, bw, bh, bh / 2); ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fill();
+  if (p > 0) {
+    roundRect(bx + 3, by + 3, Math.max(bh - 6, (bw - 6) * clamp(p, 0, 1)), bh - 6, (bh - 6) / 2);
+    const gr = ctx.createLinearGradient(bx, 0, bx + bw, 0); gr.addColorStop(0, '#7cff6b'); gr.addColorStop(0.6, '#ffd23f'); gr.addColorStop(1, '#ff3355');
+    ctx.fillStyle = gr; ctx.fill();
+  }
+  txt(s.bands + ' / ' + s.goal + ' elásticos', W / 2, by + bh / 2 + 1, 15 * U, '#fff');
+  txt('❤️ curtida = 1   •   🎁 1 moeda = ' + game.cfg.perCoin + '   •   ➕ seguir = ' + game.cfg.perFollow, W / 2, by + bh + 18 * U, 12.5 * U, '#e3e8ff', 'center', 700);
+  // avisos
+  let ty = by + bh + 44 * U;
+  for (const t of toasts) {
+    const age = (now - t.t) / 1000; if (age > 4.5) continue;
+    ctx.globalAlpha = clamp(4.5 - age, 0, 1);
+    txt(t.text, W / 2, ty, 15 * U, t.color, 'center', 800);
+    ty += 21 * U;
+  }
+  ctx.globalAlpha = 1;
+  // rodapé (acima da área dos comentários do TikTok)
+  const { b, cy } = melonDims();
+  const fy = cy + b * 1.0 + H * 0.06 + 18 * U;
+  const k = kingOfDay();
+  txt('Melancia nº ' + s.melonNo + (k ? '   •   👑 rei do estouro: ' + short(k.name, 14) + ' (' + k.n + ')' : ''), W / 2, fy, 13 * U, '#ffe08a', 'center', 800);
+  // ponto de conexão (discreto)
+  const col = sim ? '#b38bff' : connStatus === 'conectado' ? '#3ddc84' : connStatus === 'conectando' || connStatus === 'caiu' ? '#ffa630' : connStatus === 'LIVE não encontrada' ? '#ff4d6d' : '#6b7280';
+  ctx.fillStyle = col; ctx.beginPath(); ctx.arc(W - 10 * U, H * 0.105, 3.5 * U, 0, Math.PI * 2); ctx.fill();
+}
+
+function drawMelon(now, dt) {
+  const s = game.state, p = s.bands / s.goal, { a, b, cx, cy } = melonDims();
+  melon.p = p;
+  if (!melon.visible) return;
+  // rachadura nova → estalo
+  const lvl = melon.cracks.filter(c => p >= c.start).length;
+  if (lvl > melon.crackLevel) { melon.crackLevel = lvl; Sound.crack(); }
+  const nb = visibleBands(s.bands, s.goal), key = nb + ':' + Math.round(p * 100) + ':' + W + 'x' + H;
+  if ((melonCache.dirty || key !== melonCache.key) && now - melonCache.lastBuild > 80) {
+    buildMelonCache(p, nb); melonCache.key = key; melonCache.dirty = false; melonCache.lastBuild = now;
+  }
+  // tremedeira e mola
+  melon.spring *= Math.pow(0.02, dt);
+  const amp = U * (Math.pow(p, 3) * 7 + (p > 0.9 ? 2.5 : 0));
+  const sx = 1 + 0.035 * melon.spring * Math.sin(now / 35), sy = 1 - 0.03 * melon.spring * Math.sin(now / 35);
+  // queda da melancia nova
+  melon.dropT = Math.min(1, melon.dropT + dt / 0.7);
+  const t = melon.dropT, bounce = t < 1 ? (1 - Math.abs(Math.cos(t * Math.PI * 1.5)) * (1 - t)) : 1;
+  const dy = -(1 - bounce) * H * 0.5;
+  ctx.save();
+  ctx.translate(cx + rnd(-amp, amp), cy + dy + rnd(-amp, amp));
+  ctx.scale(sx, sy);
+  ctx.drawImage(melonCache.cv, -melonCache.w / 2, -melonCache.h / 2, melonCache.w, melonCache.h);
+  ctx.restore();
+  if (p > 0.85 && Math.random() < dt * 3) drip();
+  if (p > 0.8 && Math.random() < dt * 0.8) Sound.creak();
+}
+
+function drawParts(dt) {
+  const g = 900 * U;
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const q = parts[i]; q.life -= dt; if (q.life <= 0) { parts.splice(i, 1); continue; }
+    q.x += q.vx * dt; q.y += q.vy * dt;
+    if (q.k === 'heart') { q.vy *= 0.99; } else { q.vy += g * dt; q.vx *= 0.995; }
+    if (q.vr) q.r += q.vr * dt;
+    const al = clamp(q.life / q.max * 1.5, 0, 1); ctx.globalAlpha = al;
+    if (q.k === 'heart') ctx.drawImage(heartSprite, q.x - q.s / 2, q.y - q.s / 2, q.s, q.s);
+    else if (q.k === 'drop') { ctx.fillStyle = '#ff2d55'; ctx.beginPath(); ctx.arc(q.x, q.y, q.s, 0, Math.PI * 2); ctx.fill(); }
+    else if (q.k === 'seed') { ctx.save(); ctx.translate(q.x, q.y); ctx.rotate(q.r); ctx.fillStyle = '#111'; ctx.beginPath(); ctx.ellipse(0, 0, q.s, q.s * 0.6, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore(); }
+    else if (q.k === 'chunk') {
+      ctx.save(); ctx.translate(q.x, q.y); ctx.rotate(q.r); const s = q.s;
+      ctx.fillStyle = '#ff3b55'; ctx.beginPath(); ctx.moveTo(-s, s * 0.5); ctx.lineTo(s, s * 0.5); ctx.lineTo(0, -s * 0.8); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#2f8a2c'; ctx.fillRect(-s, s * 0.5, s * 2, s * 0.22);
+      ctx.fillStyle = '#e8ffd9'; ctx.fillRect(-s, s * 0.42, s * 2, s * 0.1);
+      ctx.restore();
+    }
+  }
+  ctx.globalAlpha = 1;
+  for (let i = floaters.length - 1; i >= 0; i--) {
+    const f = floaters[i]; f.t += dt; if (f.t > 1.4) { floaters.splice(i, 1); continue; }
+    ctx.globalAlpha = clamp(1.4 - f.t, 0, 1);
+    txt(f.text, f.x, f.y - f.t * 70 * U, (22 + 10 * Math.min(1, f.t * 4)) * U, f.color);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawPop(now) {
+  const s = game.state; if (s.phase !== 'pop' || !lastPopInfo) return;
+  const t = (now - popAt) / 1000;
+  if (t < 0.15) { ctx.fillStyle = 'rgba(255,255,255,' + (0.7 * (1 - t / 0.15)) + ')'; ctx.fillRect(0, 0, W, H); }
+  const sc = t < 0.35 ? 0.4 + 0.8 * (t / 0.35) : 1 + 0.03 * Math.sin(t * 6);
+  ctx.save(); ctx.translate(W / 2, H * 0.32); ctx.scale(sc, sc);
+  txt('💥 ESTOUROU! 💥', 0, 0, 40 * U, '#ffd23f');
+  ctx.restore();
+  if (t > 0.4) {
+    txt('quem estourou:', W / 2, H * 0.37, 15 * U, '#e3e8ff', 'center', 700);
+    txt('👑 ' + short(lastPopInfo.popper.name, 18), W / 2, H * 0.41, 30 * U, '#ffffff');
+  }
+  if (t > 1.2 && lastPopInfo.top.length) {
+    const bw = Math.min(W * 0.8, 320 * U), bx = (W - bw) / 2, by = H * 0.45, rh = 26 * U;
+    roundRect(bx, by, bw, rh * (lastPopInfo.top.length + 1) + 12 * U, 14 * U); ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fill();
+    txt('Quem mais colocou elásticos', W / 2, by + rh * 0.6, 13 * U, '#ffe08a', 'center', 800);
+    const medals = ['🥇', '🥈', '🥉'];
+    lastPopInfo.top.forEach((c, i) => {
+      txt(medals[i] + ' ' + short(c.name, 16), bx + 16 * U, by + rh * (i + 1.6), 15 * U, '#fff', 'left', 800);
+      txt(String(c.n), bx + bw - 16 * U, by + rh * (i + 1.6), 15 * U, '#7cff6b', 'right', 800);
+    });
+  }
+  const left = Math.ceil(s.popLeft / 1000);
+  if (left <= 3) txt('Nova melancia em ' + left + '…', W / 2, H * 0.62, 16 * U, '#c9d4ff', 'center', 800);
+}
+
+function drawIdle() {
+  drawBg();
+  txt('🍉', W / 2, H * 0.43, 90 * U, '#fff');
+}
+
+// ================= LAÇO =================
+let last = performance.now();
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dt = Math.min(0.1, (now - last) / 1000); last = now;
+  if (!started) { drawIdle(); return; }
+  if (sim && game.state.phase === 'play') simStep(dt * 1000);
+  game.tick(dt * 1000);
+  shake *= Math.pow(0.03, dt);
+  ctx.save();
+  if (shake > 0.01) ctx.translate(rnd(-1, 1) * 14 * U * shake, rnd(-1, 1) * 14 * U * shake);
+  drawBg();
+  drawMelon(now, dt);
+  drawParts(dt);
+  ctx.restore();
+  if (game.state.phase === 'pop') drawPop(now); else drawHud(now);
+}
+setInterval(() => { if (!panel.hidden) updateStatus(); }, 1000);
+
+resize();
+fillSetup();
+if (params.get('auto') === '1') { setup.hidden = true; startGame(); if (params.get('sim') === '1') setSim(true); }
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
