@@ -36,7 +36,7 @@
 <!-- Tela de configuração (só o streamer vê, antes de começar) -->
 <div id="setup" class="overlay">
   <div class="card">
-    <h1>🍉 Melancia dos Elásticos</h1>
+    <h1>🍉 Melancia dos Elásticos <span style="font-size:13px;color:#7cff6b">v1.1</span></h1>
     <p class="sub">Curtidas e presentes colocam elásticos até a melancia estourar.</p>
 
     <label for="f-user">Seu @ do TikTok</label>
@@ -75,7 +75,7 @@
 <!-- Painel do streamer (escondido) -->
 <div id="panel" class="overlay" hidden>
   <div class="card">
-    <h1 style="font-size:18px">Painel</h1>
+    <h1 style="font-size:18px">Painel <span style="font-size:12px;color:#7cff6b">v1.1</span></h1>
     <div id="status">—</div>
     <div class="grid">
       <button data-t="like1">❤️ +1</button>
@@ -331,15 +331,31 @@ function createConnection(onMsg, onStatus) {
     ws.onopen = () => { tries = 0; onStatus('conectado'); };
     ws.onmessage = (m) => { lastEvent = Date.now(); onMsg(m.data); };
     ws.onerror = () => {};
-    ws.onclose = (e) => { ws = null; onStatus('caiu', e && e.code ? 'código ' + e.code + (e.reason ? ' · ' + e.reason : '') : ''); retry(); };
+    ws.onclose = (e) => {
+      ws = null;
+      const reason = (e && e.reason) || '';
+      if (e && e.code === 4404) {
+        // LIVE não encontrada: respeita o tempo pedido pelo servidor em vez de insistir
+        const m = /retry after (\d+)/i.exec(reason);
+        const secs = m ? Math.min(900, Number(m[1])) : 60;
+        nextAt = Date.now() + secs * 1000 + 1500;
+        onStatus('LIVE não encontrada', 'abra a LIVE antes; nova tentativa automática em');
+        clearTimeout(timer); timer = setTimeout(connect, secs * 1000 + 1500);
+        return;
+      }
+      onStatus('caiu', e && e.code ? 'código ' + e.code + (reason ? ' · ' + reason : '') : '');
+      retry();
+    };
   }
+  let nextAt = 0;
   function retry() {
     if (!alive) return;
     const wait = Math.min(15000, 1000 * Math.pow(2, tries++));
+    nextAt = Date.now() + wait;
     clearTimeout(timer); timer = setTimeout(connect, wait);
   }
   function close() { alive = false; clearTimeout(timer); if (ws) { try { ws.onclose = null; ws.close(); } catch (e) {} ws = null; } onStatus('desligado'); }
-  return { open, close, reconnect() { if (url) open(url); }, get lastEvent() { return lastEvent; } };
+  return { open, close, reconnect() { if (url) open(url); }, get lastEvent() { return lastEvent; }, get waitLeft() { return Math.max(0, Math.ceil((nextAt - Date.now()) / 1000)); } };
 }
 
 // ================= TELA =================
@@ -635,7 +651,9 @@ function alertBox(msg) { const h = setup.querySelector('.hint'); h.innerHTML = '
 function updateStatus() {
   const el = $('status'); if (!el) return;
   const since = conn && conn.lastEvent ? Math.round((Date.now() - conn.lastEvent) / 1000) + ' s' : '—';
-  el.textContent = 'Fonte: ' + settings.src + ' · ' + connStatus + (connDetail ? ' (' + connDetail + ')' : '') + ' · último evento: ' + since + (sim ? ' · simulador LIGADO' : '');
+  let det = connDetail;
+  if (connStatus === 'LIVE não encontrada' && conn) det += ' ' + conn.waitLeft + ' s (ou toque em 🔄 reconectar)';
+  el.textContent = 'Fonte: ' + settings.src + ' · ' + connStatus + (det ? ' (' + det + ')' : '') + ' · último evento: ' + since + (sim ? ' · simulador LIGADO' : '');
 }
 function setSim(on) { sim = on; $('b-sim').textContent = on ? '🤖 simulador ✓' : '🤖 simulador'; updateStatus(); }
 function testAction(a) { game && game.action(Object.assign({ uid: 'teste', name: 'Teste' }, a)); }
@@ -744,7 +762,7 @@ function drawHud(now) {
   const k = kingOfDay();
   txt('Melancia nº ' + s.melonNo + (k ? '   •   👑 rei do estouro: ' + short(k.name, 14) + ' (' + k.n + ')' : ''), W / 2, fy, 13 * U, '#ffe08a', 'center', 800);
   // ponto de conexão (discreto)
-  const col = sim ? '#b38bff' : connStatus === 'conectado' ? '#3ddc84' : connStatus === 'conectando' || connStatus === 'caiu' ? '#ffa630' : '#6b7280';
+  const col = sim ? '#b38bff' : connStatus === 'conectado' ? '#3ddc84' : connStatus === 'conectando' || connStatus === 'caiu' ? '#ffa630' : connStatus === 'LIVE não encontrada' ? '#ff4d6d' : '#6b7280';
   ctx.fillStyle = col; ctx.beginPath(); ctx.arc(W - 10 * U, H * 0.105, 3.5 * U, 0, Math.PI * 2); ctx.fill();
 }
 
